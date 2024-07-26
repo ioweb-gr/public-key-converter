@@ -36,51 +36,69 @@
       </div>
 
       <div class="calculated" v-if="!keyNameRequired">
-        <div>
-          <h2>PEM Format (PKCS#1)</h2>
-          <pre>{{ pemKeyPkcs1 }}</pre>
-          <div v-if="pemKeyPkcs1Error" class="error">
-            <pre>{{ pemKeyPkcs1Error }}</pre>
-          </div>
-        </div>
-        <div>
-          <h2>PEM Format (PKCS#8)</h2>
-          <pre>{{ pemKeyPkcs8 }}</pre>
-          <div v-if="pemKeyPkcs8Error" class="error">
-            <pre>{{ pemKeyPkcs8Error }}</pre>
-          </div>
-        </div>
-        <div>
+        <nav>
+          <ul>
+            <li><a href="#ssh-format">OpenSSH Format</a></li>
+            <li><a href="#pem-pkcs1">PEM Format (PKCS#1)</a></li>
+            <li><a href="#pem-pkcs8">PEM Format (PKCS#8)</a></li>
+            <li><a href="#rfc4253">RFC4253 Format</a></li>
+            <li><a href="#openssh-new">OpenSSH New Format</a></li>
+            <li><a href="#dnssec">DNSSEC Format</a></li>
+            <li><a href="#putty">PuTTY Format</a></li>
+          </ul>
+        </nav>
+        <div id="ssh-format" class="box">
           <h2>OpenSSH Format</h2>
           <pre>{{ authorizedKey }}</pre>
+          <button type="button" @click="copyToClipboard(authorizedKey)">Copy</button>
           <div v-if="authorizedKeyError" class="error">
             <pre>{{ authorizedKeyError }}</pre>
           </div>
         </div>
-        <div>
+        <div id="pem-pkcs1" class="box">
+          <h2>PEM Format (PKCS#1)</h2>
+          <pre>{{ pemKeyPkcs1 }}</pre>
+          <button type="button" @click="copyToClipboard(pemKeyPkcs1)">Copy</button>
+          <div v-if="pemKeyPkcs1Error" class="error">
+            <pre>{{ pemKeyPkcs1Error }}</pre>
+          </div>
+        </div>
+        <div id="pem-pkcs8" class="box">
+          <h2>PEM Format (PKCS#8)</h2>
+          <pre>{{ pemKeyPkcs8 }}</pre>
+          <button type="button" @click="copyToClipboard(pemKeyPkcs8)">Copy</button>
+          <div v-if="pemKeyPkcs8Error" class="error">
+            <pre>{{ pemKeyPkcs8Error }}</pre>
+          </div>
+        </div>
+        <div id="rfc4253" class="box">
           <h2>RFC4253 Format</h2>
           <pre>{{ rfc4253Key }}</pre>
+          <button type="button" @click="copyToClipboard(rfc4253Key)">Copy</button>
           <div v-if="rfc4253KeyError" class="error">
             <pre>{{ rfc4253KeyError }}</pre>
           </div>
         </div>
-        <div>
+        <div id="openssh-new" class="box">
           <h2>OpenSSH New Format</h2>
           <pre>{{ opensshKey }}</pre>
+          <button type="button" @click="copyToClipboard(opensshKey)">Copy</button>
           <div v-if="opensshKeyError" class="error">
             <pre>{{ opensshKeyError }}</pre>
           </div>
         </div>
-        <div>
+        <div id="dnssec" class="box">
           <h2>DNSSEC Format</h2>
           <pre>{{ dnssecKey }}</pre>
+          <button type="button" @click="copyToClipboard(dnssecKey)">Copy</button>
           <div v-if="dnssecKeyError" class="error">
             <pre>{{ dnssecKeyError }}</pre>
           </div>
         </div>
-        <div>
+        <div id="putty" class="box">
           <h2>PuTTY Format</h2>
           <pre>{{ puttyKey }}</pre>
+          <button type="button" @click="copyToClipboard(puttyKey)">Copy</button>
           <div v-if="puttyKeyError" class="error">
             <pre>{{ puttyKeyError }}</pre>
           </div>
@@ -153,9 +171,8 @@ export default {
         const commentMatch = this.inputData.match(/Comment: "([^"]+)"/);
         if (commentMatch) {
           this.comment = commentMatch[1];
-          this.commentExtracted = true;
         } else {
-          this.commentExtracted = false;
+          this.comment = '';
         }
         if (!key.comment || key.comment.trim() === '' || key.comment.includes('unnamed')) {
           this.keyNameRequired = true;
@@ -170,10 +187,20 @@ export default {
     handleGenerate() {
       if (this.keyName) {
         this.keyNameRequired = false;
+        this.setKeyComment();
         this.proceedWithGeneration();
       } else {
         this.$refs.keyNameInput.focus();
         this.$refs.keyNameInput.classList.add('highlight');
+      }
+    },
+    setKeyComment() {
+      try {
+        const key = sshpk.parseKey(this.inputData, 'auto');
+        key.comment = this.keyName;
+        this.inputData = key.toString('ssh');
+      } catch (error) {
+        console.error('Error setting key comment:', error);
       }
     },
     proceedWithGeneration() {
@@ -186,29 +213,29 @@ export default {
         try {
           this.pemKeyPkcs1 = key.toString('pkcs1');
         } catch (error) {
-          this.pemKeyPkcs1Error = 'Error converting to PKCS#1: ' + error.message;
-          console.error('Error converting to PKCS#1:', error);
+          this.pemKeyPkcs1Error = 'Error converting to PEM Format (PKCS#1): ' + error.message;
+          console.error('Error converting to PEM Format (PKCS#1):', error);
         }
 
         try {
           this.pemKeyPkcs8 = key.toString('pkcs8');
         } catch (error) {
-          this.pemKeyPkcs8Error = 'Error converting to PKCS#8: ' + error.message;
-          console.error('Error converting to PKCS#8:', error);
+          this.pemKeyPkcs8Error = 'Error converting to PEM Format (PKCS#8): ' + error.message;
+          console.error('Error converting to PEM Format (PKCS#8):', error);
         }
 
         try {
           this.authorizedKey = key.toString('ssh');
         } catch (error) {
-          this.authorizedKeyError = 'Error converting to OpenSSH: ' + error.message;
-          console.error('Error converting to OpenSSH:', error);
+          this.authorizedKeyError = 'Error converting to OpenSSH Format: ' + error.message;
+          console.error('Error converting to OpenSSH Format:', error);
         }
 
         try {
-          this.rfc4253Key = key.toString('rfc4253');
+          this.rfc4253Key = key.toBuffer('rfc4253').toString('base64');
         } catch (error) {
-          this.rfc4253KeyError = 'Error converting to RFC4253: ' + error.message;
-          console.error('Error converting to RFC4253:', error);
+          this.rfc4253KeyError = 'Error converting to RFC4253 Format: ' + error.message;
+          console.error('Error converting to RFC4253 Format:', error);
         }
 
         try {
@@ -236,6 +263,13 @@ export default {
       } catch (error) {
         console.error('Error converting keys:', error);
       }
+    },
+    copyToClipboard(content) {
+      navigator.clipboard.writeText(content).then(() => {
+        alert('Copied to clipboard');
+      }).catch(err => {
+        console.error('Error copying to clipboard:', err);
+      });
     }
   }
 };
@@ -307,6 +341,49 @@ pre {
 .highlight {
   border-color: red;
   box-shadow: 0 0 5px red;
+}
+
+nav ul {
+  list-style-type: none;
+  padding: 0;
+}
+
+nav ul li {
+  display: inline;
+  margin-right: 10px;
+}
+
+nav ul li a {
+  text-decoration: none;
+  color: #007bff;
+}
+
+nav ul li a:hover {
+  text-decoration: underline;
+}
+
+.box {
+  border: 1px solid #ccc;
+  padding: 10px;
+  border-radius: 5px;
+  margin-bottom: 20px;
+  position: relative;
+}
+
+.box button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 5px 10px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.box button:hover {
+  background-color: #0056b3;
 }
 
 @media (max-width: 768px) {
