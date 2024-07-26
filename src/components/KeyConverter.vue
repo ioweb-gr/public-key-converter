@@ -1,42 +1,91 @@
 <template>
   <div>
     <h1>SSH Public Key Converter</h1>
-    <form @submit.prevent="convertKeys">
-      <!-- Existing form fields -->
+    <form @submit.prevent>
       <div>
-        <label for="username">Username:</label>
-        <input id="username" v-model="username" @input="updateAuthorizedKey"
-               :class="{ 'highlight': !username && ssh2Key }" ref="username"/>
+        <label for="inputData">Input:</label>
+        <textarea id="inputData" v-model="inputData" @input="extractData"></textarea>
       </div>
-      <div>
-        <label for="comment">Comment:</label>
-        <input id="comment" v-model="comment" @input="updateAuthorizedKey" ref="comment"/>
+
+      <div v-if="keyNameRequired">
+        <label for="keyName">Key Name:</label>
+        <input id="keyName" v-model="keyName" ref="keyNameInput" required />
       </div>
-      <div>
-        <label for="ssh2">SSH2 Public Key Format:</label>
-        <textarea id="ssh2" v-model="ssh2Key" @input="convertFromSSH2" ref="ssh2"></textarea>
+
+      <div v-if="keyNameRequired">
+        <button type="button" @click="handleGenerate">Generate</button>
       </div>
-      <div>
-        <label for="keyType">Key Type:</label>
-        <select id="keyType" v-model="keyType" @change="updateAuthorizedKey" ref="keyType">
-          <option value="ssh-rsa">ssh-rsa</option>
-          <option value="ssh-ed25519">ssh-ed25519</option>
-        </select>
+
+      <div class="informational" v-if="!keyNameRequired">
+        <div>
+          <label for="keyType">Key Type:</label>
+          <input id="keyType" v-model="keyType" readonly />
+        </div>
+        <div>
+          <label for="keyData">Key Data:</label>
+          <textarea id="keyData" v-model="keyData" readonly></textarea>
+        </div>
+        <div>
+          <label for="comment">Comment:</label>
+          <input id="comment" v-model="comment" readonly />
+        </div>
+        <div>
+          <label for="keyName">Key Name:</label>
+          <input id="keyName" v-model="keyName" readonly />
+        </div>
       </div>
-      <div>
-        <label for="keyLength">Key Length:</label>
-        <input id="keyLength" v-model="keyLength" type="number" @input="updateAuthorizedKey" ref="keyLength"/>
+
+      <div class="calculated" v-if="!keyNameRequired">
+        <div>
+          <h2>PEM Format (PKCS#1)</h2>
+          <pre>{{ pemKeyPkcs1 }}</pre>
+          <div v-if="pemKeyPkcs1Error" class="error">
+            <pre>{{ pemKeyPkcs1Error }}</pre>
+          </div>
+        </div>
+        <div>
+          <h2>PEM Format (PKCS#8)</h2>
+          <pre>{{ pemKeyPkcs8 }}</pre>
+          <div v-if="pemKeyPkcs8Error" class="error">
+            <pre>{{ pemKeyPkcs8Error }}</pre>
+          </div>
+        </div>
+        <div>
+          <h2>OpenSSH Format</h2>
+          <pre>{{ authorizedKey }}</pre>
+          <div v-if="authorizedKeyError" class="error">
+            <pre>{{ authorizedKeyError }}</pre>
+          </div>
+        </div>
+        <div>
+          <h2>RFC4253 Format</h2>
+          <pre>{{ rfc4253Key }}</pre>
+          <div v-if="rfc4253KeyError" class="error">
+            <pre>{{ rfc4253KeyError }}</pre>
+          </div>
+        </div>
+        <div>
+          <h2>OpenSSH New Format</h2>
+          <pre>{{ opensshKey }}</pre>
+          <div v-if="opensshKeyError" class="error">
+            <pre>{{ opensshKeyError }}</pre>
+          </div>
+        </div>
+        <div>
+          <h2>DNSSEC Format</h2>
+          <pre>{{ dnssecKey }}</pre>
+          <div v-if="dnssecKeyError" class="error">
+            <pre>{{ dnssecKeyError }}</pre>
+          </div>
+        </div>
+        <div>
+          <h2>PuTTY Format</h2>
+          <pre>{{ puttyKey }}</pre>
+          <div v-if="puttyKeyError" class="error">
+            <pre>{{ puttyKeyError }}</pre>
+          </div>
+        </div>
       </div>
-      <div>
-        <label for="authorized">OpenSSH Public Key Format:</label>
-        <textarea id="authorized" v-model="authorizedKey" @input="convertFromAuthorizedKey" ref="authorized"></textarea>
-      </div>
-      <div>
-        <label for="pem">PEM Format:</label>
-        <textarea id="pem" v-model="pemKey" ref="pem"></textarea>
-      </div>
-      <!-- Clear Button -->
-      <button type="button" @click="clearForm">Clear</button>
     </form>
   </div>
 </template>
@@ -47,118 +96,146 @@ import sshpk from 'sshpk';
 export default {
   data() {
     return {
-      ssh2Key: '',
-      authorizedKey: '',
-      pemKey: '',
-      username: '',
+      inputFormat: 'auto', // Default to auto
+      inputData: '',
+      keyType: '',
+      keyData: '',
       comment: '',
-      keyType: 'ssh-rsa',
-      keyLength: 2048
+      keyName: '',
+      keyNameRequired: false,
+      pemKeyPkcs1: '',
+      pemKeyPkcs8: '',
+      authorizedKey: '',
+      rfc4253Key: '',
+      opensshKey: '',
+      dnssecKey: '',
+      puttyKey: '',
+      commentExtracted: false,
+      converted: false,
+      pemKeyPkcs1Error: '',
+      pemKeyPkcs8Error: '',
+      authorizedKeyError: '',
+      rfc4253KeyError: '',
+      opensshKeyError: '',
+      dnssecKeyError: '',
+      puttyKeyError: ''
     };
   },
-  watch: {
-    ssh2Key() {
-      this.matchTextAreaHeights();
-    },
-    authorizedKey() {
-      this.matchTextAreaHeights();
-    },
-    pemKey() {
-      this.matchTextAreaHeights();
-    }
-  },
   methods: {
-    trimInputs() {
-      this.username = this.username.trim();
-      this.ssh2Key = this.ssh2Key.trim();
-      this.authorizedKey = this.authorizedKey.trim();
-      this.comment = this.comment.trim();
-    },
-    convertFromSSH2() {
-      this.trimInputs();
-      if (!this.username) {
-        this.$refs.username.focus();
-        return;
-      }
-      if (this.ssh2Key.includes('---- BEGIN SSH2 PUBLIC KEY ----')) {
-        this.convertToAuthorizedFormat();
-        this.convertToPemFormat();
-      }
-    },
-    convertToAuthorizedFormat() {
-      let key = this.ssh2Key
-          .replace(/---- BEGIN SSH2 PUBLIC KEY ----/, '')
-          .replace(/---- END SSH2 PUBLIC KEY ----/, '')
-          .replace(/Comment: ".*"/, '')
-          .replace(/\n/g, '');
-      this.authorizedKey = ''; // Clear the field
-      if (this.keyType === 'ssh-ed25519') {
-        key = key.slice(0, 44); // Ensure correct length for ed25519 keys
-      }
-      this.authorizedKey = `${this.keyType} ${key} ${this.comment ? this.comment + ' ' : ''}${this.username}`;
-    },
-    validateSSH2KeyFormat(key) {
-      const ssh2KeyRegex = /---- BEGIN SSH2 PUBLIC KEY ----[\s\S]+---- END SSH2 PUBLIC KEY ----/;
-      return ssh2KeyRegex.test(key);
-    },
-    convertToPemFormat() {
-      try {
-        console.log('SSH2 Key:', this.ssh2Key); // Log the input key
-        if (!this.validateSSH2KeyFormat(this.ssh2Key)) {
-          throw new Error('Invalid SSH2 key format');
-        }
-        const key = sshpk.parseKey(this.ssh2Key, 'ssh');
-        this.pemKey = key.toString('pem');
-        console.log('PEM Key:', this.pemKey); // Log the output key
-      } catch (error) {
-        console.error('Error converting to PEM format:', error);
-        if (error.name === 'KeyParseError') {
-          this.pemKey = 'Error: Invalid SSH2 key format';
-        } else {
-          this.pemKey = 'Error converting to PEM format';
-        }
-      }
-    },
-    convertFromAuthorizedKey() {
-      this.trimInputs();
-      const parts = this.authorizedKey.split(' ');
-      if (parts.length >= 2 && (parts[0] === 'ssh-rsa' || parts[0] === 'ssh-ed25519')) {
-        this.keyType = parts[0];
-        this.ssh2Key = `---- BEGIN SSH2 PUBLIC KEY ----\n${parts.slice(1, -1).join(' ')}\n---- END SSH2 PUBLIC KEY ----`;
-        this.username = parts[parts.length - 1];
-      }
-    },
-    updateAuthorizedKey() {
-      this.trimInputs();
-      if (this.authorizedKey) {
-        const parts = this.authorizedKey.split(' ');
-        if (parts[0] === 'ssh-rsa' || parts[0] === 'ssh-ed25519') {
-          parts[parts.length - 1] = this.username;
-          this.authorizedKey = parts.join(' ');
-        }
-      }
-      this.convertToAuthorizedFormat();
-      this.convertToPemFormat();
-    },
-    matchTextAreaHeights() {
-      this.$nextTick(() => {
-        const ssh2TextArea = this.$refs.ssh2;
-        const authorizedTextArea = this.$refs.authorized;
-        const pemTextArea = this.$refs.pem;
-        const maxHeight = Math.max(ssh2TextArea.scrollHeight, authorizedTextArea.scrollHeight, pemTextArea.scrollHeight);
-        ssh2TextArea.style.height = `${maxHeight}px`;
-        authorizedTextArea.style.height = `${maxHeight}px`;
-        pemTextArea.style.height = `${maxHeight}px`;
-      });
-    },
-    clearForm() {
-      this.ssh2Key = '';
-      this.authorizedKey = '';
-      this.pemKey = '';
-      this.username = '';
+    resetFields() {
+      this.keyType = '';
+      this.keyData = '';
       this.comment = '';
-      this.keyType = 'ssh-rsa';
-      this.keyLength = 2048;
+      this.keyName = '';
+      this.pemKeyPkcs1 = '';
+      this.pemKeyPkcs8 = '';
+      this.authorizedKey = '';
+      this.rfc4253Key = '';
+      this.opensshKey = '';
+      this.dnssecKey = '';
+      this.puttyKey = '';
+      this.pemKeyPkcs1Error = '';
+      this.pemKeyPkcs8Error = '';
+      this.authorizedKeyError = '';
+      this.rfc4253KeyError = '';
+      this.opensshKeyError = '';
+      this.dnssecKeyError = '';
+      this.puttyKeyError = '';
+      this.keyNameRequired = false;
+      this.converted = false;
+    },
+    extractData() {
+      this.resetFields();
+      try {
+        const key = sshpk.parseKey(this.inputData, 'auto');
+        this.keyType = key.type;
+        this.keyData = key.toString('pem');
+        const commentMatch = this.inputData.match(/Comment: "([^"]+)"/);
+        if (commentMatch) {
+          this.comment = commentMatch[1];
+          this.commentExtracted = true;
+        } else {
+          this.commentExtracted = false;
+        }
+        if (!key.comment || key.comment.trim() === '' || key.comment.includes('unnamed')) {
+          this.keyNameRequired = true;
+        } else {
+          this.keyName = key.comment;
+          this.convertKeys();
+        }
+      } catch (error) {
+        console.error('Error extracting data:', error);
+      }
+    },
+    handleGenerate() {
+      if (this.keyName) {
+        this.keyNameRequired = false;
+        this.proceedWithGeneration();
+      } else {
+        this.$refs.keyNameInput.focus();
+        this.$refs.keyNameInput.classList.add('highlight');
+      }
+    },
+    proceedWithGeneration() {
+      this.convertKeys();
+    },
+    convertKeys() {
+      try {
+        const key = sshpk.parseKey(this.inputData, 'auto');
+
+        try {
+          this.pemKeyPkcs1 = key.toString('pkcs1');
+        } catch (error) {
+          this.pemKeyPkcs1Error = 'Error converting to PKCS#1: ' + error.message;
+          console.error('Error converting to PKCS#1:', error);
+        }
+
+        try {
+          this.pemKeyPkcs8 = key.toString('pkcs8');
+        } catch (error) {
+          this.pemKeyPkcs8Error = 'Error converting to PKCS#8: ' + error.message;
+          console.error('Error converting to PKCS#8:', error);
+        }
+
+        try {
+          this.authorizedKey = key.toString('ssh');
+        } catch (error) {
+          this.authorizedKeyError = 'Error converting to OpenSSH: ' + error.message;
+          console.error('Error converting to OpenSSH:', error);
+        }
+
+        try {
+          this.rfc4253Key = key.toString('rfc4253');
+        } catch (error) {
+          this.rfc4253KeyError = 'Error converting to RFC4253: ' + error.message;
+          console.error('Error converting to RFC4253:', error);
+        }
+
+        try {
+          this.opensshKey = key.toString('openssh');
+        } catch (error) {
+          this.opensshKeyError = 'Error converting to OpenSSH New Format: ' + error.message;
+          console.error('Error converting to OpenSSH New Format:', error);
+        }
+
+        try {
+          this.dnssecKey = key.toString('dnssec');
+        } catch (error) {
+          this.dnssecKeyError = 'Error converting to DNSSEC: ' + error.message;
+          console.error('Error converting to DNSSEC:', error);
+        }
+
+        try {
+          this.puttyKey = key.toString('putty');
+        } catch (error) {
+          this.puttyKeyError = 'Error converting to PuTTY: ' + error.message;
+          console.error('Error converting to PuTTY:', error);
+        }
+
+        this.converted = true;
+      } catch (error) {
+        console.error('Error converting keys:', error);
+      }
     }
   }
 };
@@ -175,7 +252,7 @@ form {
   border-radius: 10px;
   box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
   background-color: #f9f9f9;
-  box-sizing: border-box; /* Ensure padding is included in the width */
+  box-sizing: border-box;
 }
 
 label {
@@ -184,14 +261,14 @@ label {
 }
 
 input, select, textarea {
-  width: calc(100% - 20px); /* Adjust width to account for padding */
+  width: calc(100% - 20px);
   padding: 10px;
   margin-bottom: 20px;
   border: 1px solid #ccc;
   border-radius: 5px;
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
   font-size: 16px;
-  box-sizing: border-box; /* Ensure padding is included in the width */
+  box-sizing: border-box;
 }
 
 textarea {
@@ -199,8 +276,37 @@ textarea {
   min-height: 100px;
 }
 
+.informational {
+  background-color: #e9f7ef;
+  padding: 10px;
+  border-radius: 5px;
+  margin-bottom: 20px;
+}
+
+.calculated {
+  background-color: #f4f4f4;
+  padding: 10px;
+  border-radius: 5px;
+}
+
+pre {
+  background-color: #f4f4f4;
+  padding: 10px;
+  border-radius: 5px;
+  overflow-x: auto;
+}
+
+.error {
+  background-color: #f8d7da;
+  color: #721c24;
+  padding: 10px;
+  border-radius: 5px;
+  margin-top: 10px;
+}
+
 .highlight {
-  border: 2px solid red;
+  border-color: red;
+  box-shadow: 0 0 5px red;
 }
 
 @media (max-width: 768px) {

@@ -22,5 +22,6 @@ module.exports = defineConfig({
     },
     devServer: {
         host: '0.0.0.0'
-    }
+    },
+    productionSourceMap: true // Enable source maps
 });
